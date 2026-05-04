@@ -186,8 +186,14 @@ function ChildSection({
       )}
 
       {/* 부모: 지급 처리 폼 */}
-      {isParent && status === "submitted" && (
-        <ParentPayForm familyId={familyId} pid={pid} total={total} />
+      {isParent && status === "submitted" && period && (
+        <ParentPayForm
+          familyId={familyId}
+          pid={pid}
+          total={total}
+          periodYear={period.year}
+          periodMonth={period.month}
+        />
       )}
 
       {/* 자녀: 제출 후 대기 */}
@@ -409,14 +415,42 @@ function ParentPayForm({
   familyId,
   pid,
   total,
+  periodYear,
+  periodMonth,
 }: {
   familyId: string;
   pid: string;
   total: number;
+  periodYear: number;
+  periodMonth: number;
 }) {
   const [paidAmount, setPaidAmount] = useState(String(total));
   const [feedback, setFeedback] = useState("");
   const [submitting, setSubmitting] = useState(false);
+
+  // Earliest payable date: 1st of the month following the period.
+  // periodMonth is 1-indexed; JS Date uses 0-indexed month, so
+  // new Date(year, periodMonth, 1) = (periodMonth+1)th month, 1st day.
+  const earliestPay = new Date(periodYear, periodMonth, 1);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const isLocked = today < earliestPay;
+
+  if (isLocked) {
+    const formatted = earliestPay.toLocaleDateString("ko-KR", {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    });
+    return (
+      <div className="border-t border-zinc-200 bg-amber-50 p-4 text-center text-sm text-amber-800">
+        <p className="font-medium">⏰ 지급 대기 중</p>
+        <p className="mt-1 text-xs text-amber-700">
+          {formatted}부터 지급 처리할 수 있어요.
+        </p>
+      </div>
+    );
+  }
 
   const handlePay = async (e: React.FormEvent) => {
     e.preventDefault();
