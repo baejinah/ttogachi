@@ -10,6 +10,7 @@ export type UserDoc = {
   familyId: string | null;
   role: Role | null;
   googleCalendarId?: string | null;
+  googleSyncToken?: string | null;
   createdAt?: Timestamp;
 };
 

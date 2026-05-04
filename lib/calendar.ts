@@ -48,6 +48,15 @@ export async function setEventGoogleId(
   });
 }
 
+/** Update event content from a Google sync — does not touch author fields. */
+export async function updateEventFromGoogle(
+  familyId: string,
+  eventId: string,
+  data: { title: string; date: string; time: string; memo: string }
+): Promise<void> {
+  await updateDoc(doc(db, "families", familyId, "events", eventId), data);
+}
+
 export async function deleteEvent(
   familyId: string,
   eventId: string

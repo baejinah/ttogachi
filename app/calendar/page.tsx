@@ -12,6 +12,7 @@ import {
   getMonthGrid,
   setEventGoogleId,
   subscribeEvents,
+  updateEventFromGoogle,
   ymd,
   type CalendarEvent,
 } from "@/lib/calendar";
@@ -21,10 +22,10 @@ import {
   deleteGoogleEvent,
   ensureTtogachiCalendar,
   getStoredToken,
-  listCalendarEvents,
+  listEventsIncremental,
   requestCalendarAccess,
 } from "@/lib/google-calendar";
-import { setGoogleCalendarId } from "@/lib/user";
+import { setGoogleCalendarId, setGoogleSyncToken } from "@/lib/user";
 import type { Family } from "@/lib/types";
 
 const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
@@ -141,43 +142,94 @@ export default function CalendarPage() {
     try {
       if (!getStoredToken()) await requestCalendarAccess();
 
+      const calendarId = userDoc.googleCalendarId;
+      const familyId = userDoc.familyId;
+
+      // Initial sync uses time range; incremental uses syncToken alone.
       const start = new Date();
       start.setMonth(start.getMonth() - 1);
       const end = new Date();
       end.setMonth(end.getMonth() + 6);
 
-      const googleEvents = await listCalendarEvents(
-        userDoc.googleCalendarId,
+      let result = await listEventsIncremental(
+        calendarId,
+        userDoc.googleSyncToken ?? null,
         start.toISOString(),
         end.toISOString()
       );
 
-      const existingIds = new Set(
-        events.filter((e) => e.googleEventId).map((e) => e.googleEventId)
-      );
-
-      let imported = 0;
-      for (const ge of googleEvents) {
-        if (ge.status === "cancelled") continue;
-        if (existingIds.has(ge.id)) continue;
-
-        const converted = convertGoogleEvent(ge);
-        const eventId = await createEvent(userDoc.familyId, {
-          ...converted,
-          authorUid: user.uid,
-          authorName: me.displayName,
-          authorColor: me.color,
-        });
-        await setEventGoogleId(userDoc.familyId, eventId, ge.id);
-        imported++;
+      // Recover from invalidated syncToken with a full sync.
+      if (result.syncTokenInvalidated) {
+        result = await listEventsIncremental(
+          calendarId,
+          null,
+          start.toISOString(),
+          end.toISOString()
+        );
       }
 
-      if (manual || imported > 0) {
+      // Map existing events by googleEventId for fast lookup.
+      const existingByGid = new Map<string, CalendarEvent>();
+      for (const e of events) {
+        if (e.googleEventId) existingByGid.set(e.googleEventId, e);
+      }
+
+      let imported = 0;
+      let updated = 0;
+      let removed = 0;
+
+      for (const ge of result.events) {
+        const existing = existingByGid.get(ge.id);
+
+        if (ge.status === "cancelled") {
+          if (existing) {
+            await deleteEvent(familyId, existing.id);
+            removed++;
+          }
+          continue;
+        }
+
+        if (existing) {
+          // Last-write-wins: Google's `updated` is treated as authoritative
+          // for synced events. (No local edit UI exists in v1.5.)
+          const converted = convertGoogleEvent(ge);
+          if (
+            converted.title !== existing.title ||
+            converted.date !== existing.date ||
+            converted.time !== existing.time ||
+            converted.memo !== existing.memo
+          ) {
+            await updateEventFromGoogle(familyId, existing.id, converted);
+            updated++;
+          }
+        } else {
+          const converted = convertGoogleEvent(ge);
+          const eventId = await createEvent(familyId, {
+            ...converted,
+            authorUid: user.uid,
+            authorName: me.displayName,
+            authorColor: me.color,
+          });
+          await setEventGoogleId(familyId, eventId, ge.id);
+          imported++;
+        }
+      }
+
+      if (result.nextSyncToken) {
+        await setGoogleSyncToken(user.uid, result.nextSyncToken);
+      }
+
+      const changed = imported + updated + removed;
+      if (manual || changed > 0) {
+        const parts: string[] = [];
+        if (imported > 0) parts.push(`${imported}개 추가`);
+        if (updated > 0) parts.push(`${updated}개 수정`);
+        if (removed > 0) parts.push(`${removed}개 삭제`);
         setToast({
           kind: "success",
           msg:
-            imported > 0
-              ? `Google에서 ${imported}개 가져왔어요`
+            parts.length > 0
+              ? `Google 동기화: ${parts.join(", ")}`
               : "이미 모두 동기화되어 있어요",
         });
       }

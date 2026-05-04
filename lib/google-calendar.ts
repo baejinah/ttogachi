@@ -167,29 +167,77 @@ export type GoogleEvent = {
   updated?: string;
 };
 
-/** List events in the given calendar within [timeMin, timeMax). */
-export async function listCalendarEvents(
-  calendarId: string,
-  timeMin: string,
-  timeMax: string
-): Promise<GoogleEvent[]> {
-  const url = new URL(
-    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(
-      calendarId
-    )}/events`
-  );
-  url.searchParams.set("timeMin", timeMin);
-  url.searchParams.set("timeMax", timeMax);
-  url.searchParams.set("singleEvents", "true");
-  url.searchParams.set("maxResults", "250");
-  url.searchParams.set("orderBy", "startTime");
+export type IncrementalListResult = {
+  events: GoogleEvent[];
+  nextSyncToken: string | null;
+  /** True when Google returned 410 GONE — caller should retry without syncToken. */
+  syncTokenInvalidated: boolean;
+};
 
-  const res = await callApi(url.toString(), { method: "GET" });
-  if (!res.ok) {
-    throw new Error(`Google 일정 조회 실패: ${res.status}`);
+/**
+ * List events using incremental sync.
+ *
+ * - If `syncToken` is provided: returns only changes since that token (incl.
+ *   `status: "cancelled"` for deletions). `timeMin`/`timeMax` are ignored.
+ * - If `syncToken` is null: full listing constrained to [`timeMin`, `timeMax`).
+ *
+ * Follows `nextPageToken` until the final page (which carries `nextSyncToken`).
+ */
+export async function listEventsIncremental(
+  calendarId: string,
+  syncToken: string | null,
+  timeMin?: string,
+  timeMax?: string
+): Promise<IncrementalListResult> {
+  const collected: GoogleEvent[] = [];
+  let pageToken: string | null = null;
+  let nextSyncToken: string | null = null;
+
+  // Cap iterations defensively to avoid runaway loops.
+  for (let i = 0; i < 50; i++) {
+    const url = new URL(
+      `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(
+        calendarId
+      )}/events`
+    );
+    url.searchParams.set("singleEvents", "true");
+    url.searchParams.set("maxResults", "250");
+
+    if (syncToken) {
+      url.searchParams.set("syncToken", syncToken);
+    } else {
+      if (timeMin) url.searchParams.set("timeMin", timeMin);
+      if (timeMax) url.searchParams.set("timeMax", timeMax);
+      url.searchParams.set("orderBy", "startTime");
+    }
+    if (pageToken) url.searchParams.set("pageToken", pageToken);
+
+    const res = await callApi(url.toString(), { method: "GET" });
+
+    if (res.status === 410) {
+      // Sync token expired — caller should redo a full sync.
+      return { events: [], nextSyncToken: null, syncTokenInvalidated: true };
+    }
+    if (!res.ok) {
+      throw new Error(`Google 일정 동기화 실패: ${res.status}`);
+    }
+
+    const data = (await res.json()) as {
+      items?: GoogleEvent[];
+      nextPageToken?: string;
+      nextSyncToken?: string;
+    };
+    if (data.items) collected.push(...data.items);
+
+    if (data.nextPageToken) {
+      pageToken = data.nextPageToken;
+      continue;
+    }
+    nextSyncToken = data.nextSyncToken ?? null;
+    break;
   }
-  const data = (await res.json()) as { items?: GoogleEvent[] };
-  return data.items ?? [];
+
+  return { events: collected, nextSyncToken, syncTokenInvalidated: false };
 }
 
 /** Convert a Google Calendar event into our app's event shape. */

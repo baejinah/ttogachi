@@ -32,3 +32,10 @@ export async function setGoogleCalendarId(
 ): Promise<void> {
   await updateDoc(doc(db, "users", uid), { googleCalendarId: calendarId });
 }
+
+export async function setGoogleSyncToken(
+  uid: string,
+  token: string | null
+): Promise<void> {
+  await updateDoc(doc(db, "users", uid), { googleSyncToken: token });
+}
