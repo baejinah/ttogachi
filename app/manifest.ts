@@ -12,9 +12,23 @@ export default function manifest(): MetadataRoute.Manifest {
     lang: "ko",
     orientation: "portrait",
     icons: [
+      // PNGs are preferred by Android Chrome and other PWA installers.
+      {
+        src: "/icon-192.png",
+        sizes: "192x192",
+        type: "image/png",
+        purpose: "any",
+      },
+      {
+        src: "/icon-512.png",
+        sizes: "512x512",
+        type: "image/png",
+        purpose: "any",
+      },
+      // SVG kept as a fallback for browsers that prefer it.
       {
         src: "/icon.svg",
-        sizes: "192x192 512x512",
+        sizes: "any",
         type: "image/svg+xml",
         purpose: "any",
       },
