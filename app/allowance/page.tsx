@@ -16,6 +16,7 @@ import {
   submitPeriod,
   subscribeEntries,
   subscribePeriod,
+  updateEntry,
   type AllowanceEntry,
   type AllowancePeriod,
 } from "@/lib/allowance";
@@ -162,7 +163,7 @@ function ChildSection({
       <EntriesList
         entries={entries}
         familyId={familyId}
-        canDelete={isMe && status === "open"}
+        canEdit={isMe && status === "open"}
       />
 
       {/* 자녀: 마감 버튼 */}
@@ -362,11 +363,11 @@ function ChildAddForm({
 function EntriesList({
   entries,
   familyId,
-  canDelete,
+  canEdit,
 }: {
   entries: AllowanceEntry[];
   familyId: string;
-  canDelete: boolean;
+  canEdit: boolean;
 }) {
   if (entries.length === 0) {
     return (
@@ -378,36 +379,167 @@ function EntriesList({
   return (
     <ul className="divide-y divide-zinc-100">
       {entries.map((e) => (
-        <li key={e.id} className="flex items-center gap-3 px-4 py-3">
-          <div className="w-12 shrink-0 text-xs text-zinc-500">
-            {e.date.slice(5).replace("-", "/")}
-          </div>
-          <div className="flex-1">
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-medium text-zinc-900">
-                {formatKRW(e.amount)}
-              </span>
-              <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-600">
-                {e.category}
-              </span>
-            </div>
-            {e.memo && <p className="mt-0.5 text-xs text-zinc-500">{e.memo}</p>}
-          </div>
-          {canDelete && (
-            <button
-              onClick={() => {
-                if (confirm("이 지출을 삭제할까요?")) {
-                  void deleteEntry(familyId, e.id);
-                }
-              }}
-              className="rounded px-2 py-1 text-xs text-red-500 hover:bg-red-50"
-            >
-              삭제
-            </button>
-          )}
-        </li>
+        <EntryItem key={e.id} entry={e} familyId={familyId} canEdit={canEdit} />
       ))}
     </ul>
+  );
+}
+
+function EntryItem({
+  entry,
+  familyId,
+  canEdit,
+}: {
+  entry: AllowanceEntry;
+  familyId: string;
+  canEdit: boolean;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [amount, setAmount] = useState(String(entry.amount));
+  const [category, setCategory] = useState(entry.category);
+  const [memo, setMemo] = useState(entry.memo);
+  const [date, setDate] = useState(entry.date);
+  const [submitting, setSubmitting] = useState(false);
+
+  // Restrict date editing to the same month as the entry's current period,
+  // so the entry doesn't accidentally jump to another period.
+  const [yearStr, monthStr] = entry.date.split("-");
+  const year = Number(yearStr);
+  const month = Number(monthStr);
+  const lastDay = new Date(year, month, 0).getDate();
+  const minDate = `${yearStr}-${monthStr}-01`;
+  const maxDate = `${yearStr}-${monthStr}-${String(lastDay).padStart(2, "0")}`;
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const amt = parseInt(amount.replace(/[^0-9]/g, ""), 10);
+    if (!amt || amt <= 0) return;
+    setSubmitting(true);
+    try {
+      await updateEntry(familyId, entry.id, {
+        amount: amt,
+        category,
+        memo: memo.trim(),
+        date,
+      });
+      setEditing(false);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleCancel = () => {
+    setAmount(String(entry.amount));
+    setCategory(entry.category);
+    setMemo(entry.memo);
+    setDate(entry.date);
+    setEditing(false);
+  };
+
+  if (editing) {
+    return (
+      <li className="bg-zinc-50 p-3">
+        <form onSubmit={handleSave} className="space-y-2">
+          <div className="flex gap-2">
+            <input
+              type="text"
+              inputMode="numeric"
+              required
+              value={amount}
+              onChange={(ev) => setAmount(ev.target.value.replace(/[^0-9]/g, ""))}
+              className="flex-1 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
+            />
+            <span className="self-center text-sm text-zinc-500">원</span>
+          </div>
+          <div className="flex gap-2">
+            <select
+              value={category}
+              onChange={(ev) => setCategory(ev.target.value)}
+              className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
+            >
+              {CATEGORIES.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+            <input
+              type="date"
+              value={date}
+              min={minDate}
+              max={maxDate}
+              onChange={(ev) => setDate(ev.target.value)}
+              className="flex-1 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
+            />
+          </div>
+          <input
+            type="text"
+            placeholder="메모"
+            maxLength={100}
+            value={memo}
+            onChange={(ev) => setMemo(ev.target.value)}
+            className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
+          />
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={handleCancel}
+              className="rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs text-zinc-700 hover:bg-zinc-50"
+            >
+              취소
+            </button>
+            <button
+              type="submit"
+              disabled={submitting || !amount}
+              className="rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
+            >
+              {submitting ? "저장 중..." : "저장"}
+            </button>
+          </div>
+        </form>
+      </li>
+    );
+  }
+
+  return (
+    <li className="flex items-center gap-3 px-4 py-3">
+      <div className="w-12 shrink-0 text-xs text-zinc-500">
+        {entry.date.slice(5).replace("-", "/")}
+      </div>
+      <div className="flex-1">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium text-zinc-900">
+            {formatKRW(entry.amount)}
+          </span>
+          <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-600">
+            {entry.category}
+          </span>
+        </div>
+        {entry.memo && (
+          <p className="mt-0.5 text-xs text-zinc-500">{entry.memo}</p>
+        )}
+      </div>
+      {canEdit && (
+        <div className="flex gap-1">
+          <button
+            onClick={() => setEditing(true)}
+            className="rounded px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-100"
+          >
+            수정
+          </button>
+          <button
+            onClick={() => {
+              if (confirm("이 지출을 삭제할까요?")) {
+                void deleteEntry(familyId, entry.id);
+              }
+            }}
+            className="rounded px-2 py-1 text-xs text-red-500 hover:bg-red-50"
+          >
+            삭제
+          </button>
+        </div>
+      )}
+    </li>
   );
 }
 

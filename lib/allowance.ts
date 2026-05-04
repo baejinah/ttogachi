@@ -117,6 +117,24 @@ export async function deleteEntry(
   await deleteDoc(doc(db, "families", familyId, "allowance_entries", entryId));
 }
 
+export async function updateEntry(
+  familyId: string,
+  entryId: string,
+  data: {
+    amount: number;
+    category: string;
+    memo: string;
+    date: string;
+  }
+): Promise<void> {
+  await updateDoc(doc(db, "families", familyId, "allowance_entries", entryId), {
+    amount: data.amount,
+    category: data.category,
+    memo: data.memo,
+    date: data.date,
+  });
+}
+
 export async function submitPeriod(
   familyId: string,
   pid: string
