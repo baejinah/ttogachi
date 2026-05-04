@@ -1,65 +1,154 @@
-import Image from "next/image";
+"use client";
+
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { doc, onSnapshot } from "firebase/firestore";
+import { db } from "@/lib/firebase";
+import { useAuth } from "@/lib/auth-context";
+import type { Family } from "@/lib/types";
 
 export default function Home() {
+  const { user, userDoc, loading, logout } = useAuth();
+  const router = useRouter();
+  const [family, setFamily] = useState<Family | null>(null);
+
+  useEffect(() => {
+    if (loading) return;
+    if (!user) {
+      router.replace("/login");
+    } else if (userDoc && !userDoc.familyId) {
+      router.replace("/onboarding");
+    }
+  }, [loading, user, userDoc, router]);
+
+  useEffect(() => {
+    if (!userDoc?.familyId) {
+      setFamily(null);
+      return;
+    }
+    return onSnapshot(doc(db, "families", userDoc.familyId), (snap) => {
+      if (snap.exists()) {
+        setFamily({ id: snap.id, ...(snap.data() as Omit<Family, "id">) });
+      }
+    });
+  }, [userDoc?.familyId]);
+
+  if (loading || !user || !userDoc || !userDoc.familyId || !family) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <p className="text-sm text-zinc-500">불러오는 중...</p>
+      </div>
+    );
+  }
+
+  const memberEntries = Object.entries(family.members);
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+    <main className="mx-auto w-full max-w-3xl px-6 py-12">
+      <header className="mb-8 flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-zinc-900">{family.name}</h1>
+          <p className="text-sm text-zinc-500">
+            {userDoc.displayName}님 ({userDoc.role === "parent" ? "부모" : "자녀"})
           </p>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+        <button
+          onClick={() => logout()}
+          className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50"
+        >
+          로그아웃
+        </button>
+      </header>
+
+      <section className="mb-6 rounded-2xl border border-zinc-200 bg-white p-6">
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="font-semibold text-zinc-900">가족 구성원</h2>
+          <span className="text-xs text-zinc-500">
+            초대 코드: <span className="font-mono font-bold">{family.inviteCode}</span>
+          </span>
         </div>
-      </main>
+        <ul className="space-y-2">
+          {memberEntries.map(([uid, m]) => (
+            <li key={uid} className="flex items-center gap-3">
+              <span
+                className="h-3 w-3 rounded-full"
+                style={{ backgroundColor: m.color }}
+              />
+              <span className="font-medium text-zinc-900">{m.displayName}</span>
+              <span className="text-xs text-zinc-500">
+                {m.role === "parent" ? "부모" : "자녀"}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      <section className="grid gap-3 sm:grid-cols-2">
+        <FeatureCard
+          href="/board"
+          title="가족 게시판"
+          desc="공지·중요 정보 고정 보관"
+        />
+        <FeatureCard
+          href="/calendar"
+          title="가족 캘린더"
+          desc="시험·출장·행사 한눈에"
+        />
+        <FeatureCard
+          href="/allowance"
+          title="용돈 기입장"
+          desc="자녀 지출 → 부모 확인"
+        />
+        <FeatureCard
+          href="/safety"
+          title="안심 귀가"
+          desc="늦는 시간·귀가 상태 공유"
+        />
+      </section>
+    </main>
+  );
+}
+
+function FeatureCard({
+  href,
+  title,
+  desc,
+  hint,
+}: {
+  href?: string;
+  title: string;
+  desc: string;
+  hint?: string;
+}) {
+  const inner = (
+    <>
+      <div className="mb-1 flex items-center justify-between">
+        <h3 className="font-semibold text-zinc-900">{title}</h3>
+        {hint && (
+          <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-500">
+            {hint}
+          </span>
+        )}
+      </div>
+      <p className="text-sm text-zinc-500">{desc}</p>
+    </>
+  );
+
+  if (href) {
+    return (
+      <Link
+        href={href}
+        className="rounded-xl border border-zinc-200 bg-white p-4 transition hover:border-zinc-400 hover:shadow-sm"
+      >
+        {inner}
+      </Link>
+    );
+  }
+
+  return (
+    <div className="rounded-xl border border-zinc-200 bg-white p-4 opacity-60">
+      {inner}
     </div>
   );
 }
