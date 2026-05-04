@@ -16,6 +16,7 @@ import {
   type SafetyDoc,
 } from "@/lib/safety";
 import { getPermission, requestPermission } from "@/lib/notifications";
+import { callNotify, registerForPush } from "@/lib/fcm";
 import type { Family, FamilyMember } from "@/lib/types";
 
 export default function SafetyPage() {
@@ -129,11 +130,17 @@ function ChildSafetyCard({
       const [hh, mm] = expectedTime.split(":").map(Number);
       const expected = new Date();
       expected.setHours(hh, mm, 0, 0);
-      // If expected time is already past today, assume tomorrow
       if (expected.getTime() < Date.now()) {
         expected.setDate(expected.getDate() + 1);
       }
       await setLate(familyId, childUid, expected, message);
+      void callNotify({
+        type: "safety_late",
+        familyId,
+        childUid,
+        title: `${childMember.displayName} 늦어요`,
+        body: message || "오늘 늦게 들어와요",
+      });
       setShowLateForm(false);
       setMessage("");
     } catch (e: unknown) {
@@ -148,6 +155,13 @@ function ChildSafetyCard({
     setError(null);
     try {
       await setArrived(familyId, childUid);
+      void callNotify({
+        type: "safety_arrived",
+        familyId,
+        childUid,
+        title: `${childMember.displayName} 귀가 완료`,
+        body: "안전하게 도착했어요",
+      });
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "처리 실패");
     } finally {
@@ -161,6 +175,13 @@ function ChildSafetyCard({
     try {
       const { lat, lng } = await getMyLocation();
       await shareLocation(familyId, childUid, lat, lng);
+      void callNotify({
+        type: "safety_location_shared",
+        familyId,
+        childUid,
+        title: `${childMember.displayName} 위치 공유`,
+        body: "지도에서 확인해보세요",
+      });
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "위치 공유 실패");
     } finally {
@@ -174,6 +195,13 @@ function ChildSafetyCard({
     setError(null);
     try {
       await requestLocation(familyId, childUid, user.uid);
+      void callNotify({
+        type: "safety_location_requested",
+        familyId,
+        childUid,
+        title: "📍 위치 요청",
+        body: "부모님이 지금 어디 있는지 궁금해해요",
+      });
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "요청 실패");
     } finally {
@@ -407,6 +435,11 @@ function NotificationBanner() {
     try {
       const result = await requestPermission();
       setPerm(result);
+      if (result === "granted") {
+        // Best-effort FCM registration; works on most browsers,
+        // may return null on iOS without PWA install
+        await registerForPush().catch(() => null);
+      }
     } finally {
       setBusy(false);
     }
@@ -417,7 +450,7 @@ function NotificationBanner() {
       <div className="text-sm text-blue-900">
         <p className="font-medium">🔔 알림 켜기</p>
         <p className="text-xs text-blue-700">
-          가족 상태 변화를 다른 탭에 있어도 바로 알 수 있어요.
+          앱이 닫혀있어도 가족 상태 변화를 알림으로 받습니다.
         </p>
       </div>
       <button
