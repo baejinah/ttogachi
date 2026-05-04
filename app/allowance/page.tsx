@@ -154,8 +154,8 @@ function ChildSection({
         </div>
       </div>
 
-      {/* 자녀: 입력 폼 */}
-      {isMe && status === "open" && (
+      {/* 자녀: 입력 폼 (지급 완료 전까진 작성·편집 가능) */}
+      {isMe && status !== "paid" && (
         <ChildAddForm familyId={familyId} childUid={childUid} />
       )}
 
@@ -163,7 +163,7 @@ function ChildSection({
       <EntriesList
         entries={entries}
         familyId={familyId}
-        canEdit={isMe && status === "open"}
+        canEdit={isMe && status !== "paid"}
       />
 
       {/* 자녀: 마감 버튼 */}
@@ -200,7 +200,10 @@ function ChildSection({
       {/* 자녀: 제출 후 대기 */}
       {isMe && status === "submitted" && (
         <div className="border-t border-zinc-200 bg-amber-50 p-4 text-center text-sm text-amber-800">
-          부모님 확인 대기 중...
+          <p>부모님 확인 대기 중...</p>
+          <p className="mt-1 text-xs text-amber-700">
+            지급 전까진 추가·수정 가능해요. 바뀐 내용은 부모님께 실시간으로 보입니다.
+          </p>
         </div>
       )}
 
