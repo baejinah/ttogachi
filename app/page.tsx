@@ -105,6 +105,13 @@ export default function Home() {
           title="안심 귀가"
           desc="늦는 시간·귀가 상태 공유"
         />
+        {userDoc.role === "parent" && (
+          <FeatureCard
+            href="/ledger"
+            title="내 가계부 🔒"
+            desc="비공개 — 나만 볼 수 있어요"
+          />
+        )}
       </section>
     </main>
   );
