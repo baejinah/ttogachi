@@ -6,11 +6,14 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import {
   addLedgerEntry,
+  categoriesFor,
   deleteLedgerEntry,
+  EXPENSE_CATEGORIES,
   formatKRW,
-  LEDGER_CATEGORIES,
+  signedKRW,
   subscribeLedger,
   updateLedgerEntry,
+  type EntryType,
   type LedgerEntry,
 } from "@/lib/ledger";
 
@@ -21,7 +24,7 @@ export default function LedgerPage() {
 
   const today = useMemo(() => new Date(), []);
   const [viewYear, setViewYear] = useState(today.getFullYear());
-  const [viewMonth, setViewMonth] = useState(today.getMonth() + 1); // 1-12
+  const [viewMonth, setViewMonth] = useState(today.getMonth() + 1);
 
   useEffect(() => {
     if (loading) return;
@@ -44,7 +47,14 @@ export default function LedgerPage() {
 
   const monthPrefix = `${viewYear}-${String(viewMonth).padStart(2, "0")}`;
   const monthEntries = entries.filter((e) => e.date.startsWith(monthPrefix));
-  const total = monthEntries.reduce((sum, e) => sum + e.amount, 0);
+
+  const totalIncome = monthEntries
+    .filter((e) => e.type === "income")
+    .reduce((s, e) => s + e.amount, 0);
+  const totalExpense = monthEntries
+    .filter((e) => e.type === "expense")
+    .reduce((s, e) => s + e.amount, 0);
+  const net = totalIncome - totalExpense;
 
   const goPrevMonth = () => {
     if (viewMonth === 1) {
@@ -93,11 +103,30 @@ export default function LedgerPage() {
             다음 →
           </button>
         </div>
-        <div className="flex items-baseline justify-between p-4">
-          <span className="text-sm text-zinc-500">이번 달 지출 합계</span>
-          <span className="text-2xl font-bold text-zinc-900">
-            {formatKRW(total)}
-          </span>
+        <div className="grid grid-cols-3 divide-x divide-zinc-100 p-4 text-center">
+          <div>
+            <p className="text-xs text-zinc-500">수입</p>
+            <p className="text-base font-bold text-green-600">
+              +{formatKRW(totalIncome)}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs text-zinc-500">지출</p>
+            <p className="text-base font-bold text-red-500">
+              −{formatKRW(totalExpense)}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs text-zinc-500">차액</p>
+            <p
+              className={`text-base font-bold ${
+                net >= 0 ? "text-green-700" : "text-red-700"
+              }`}
+            >
+              {net >= 0 ? "+" : "−"}
+              {formatKRW(Math.abs(net))}
+            </p>
+          </div>
         </div>
       </div>
 
@@ -106,7 +135,7 @@ export default function LedgerPage() {
       <section className="mt-4 rounded-2xl border border-zinc-200 bg-white">
         {monthEntries.length === 0 ? (
           <p className="p-12 text-center text-sm text-zinc-400">
-            이 달엔 지출 내역이 없어요.
+            이 달엔 내역이 없어요.
           </p>
         ) : (
           <ul className="divide-y divide-zinc-100">
@@ -120,31 +149,72 @@ export default function LedgerPage() {
   );
 }
 
+function TypeToggle({
+  value,
+  onChange,
+}: {
+  value: EntryType;
+  onChange: (t: EntryType) => void;
+}) {
+  return (
+    <div className="flex gap-1 rounded-lg bg-zinc-200 p-1">
+      <button
+        type="button"
+        onClick={() => onChange("expense")}
+        className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition ${
+          value === "expense"
+            ? "bg-white text-red-600 shadow-sm"
+            : "text-zinc-600"
+        }`}
+      >
+        − 지출
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange("income")}
+        className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition ${
+          value === "income"
+            ? "bg-white text-green-600 shadow-sm"
+            : "text-zinc-600"
+        }`}
+      >
+        + 수입
+      </button>
+    </div>
+  );
+}
+
 function AddEntryForm({
   uid,
   defaultMonth,
 }: {
   uid: string;
-  defaultMonth: string; // YYYY-MM
+  defaultMonth: string;
 }) {
   const todayStr = useMemo(() => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   }, []);
 
-  // If user is viewing a non-current month, default the date input to 1st of that month
   const defaultDate = todayStr.startsWith(defaultMonth)
     ? todayStr
     : `${defaultMonth}-01`;
 
   const [showForm, setShowForm] = useState(false);
+  const [type, setType] = useState<EntryType>("expense");
   const [amount, setAmount] = useState("");
-  const [category, setCategory] = useState<string>(LEDGER_CATEGORIES[0]);
+  const [category, setCategory] = useState<string>(EXPENSE_CATEGORIES[0]);
   const [memo, setMemo] = useState("");
   const [date, setDate] = useState(defaultDate);
   const [submitting, setSubmitting] = useState(false);
 
-  // Keep date input default in sync if the month changes while the form is closed.
+  // Reset category if type changes
+  useEffect(() => {
+    const cats = categoriesFor(type);
+    setCategory(cats[0]);
+  }, [type]);
+
+  // Keep date in sync if month changes while form is closed
   useEffect(() => {
     if (!showForm) setDate(defaultDate);
   }, [defaultDate, showForm]);
@@ -156,6 +226,7 @@ function AddEntryForm({
     setSubmitting(true);
     try {
       await addLedgerEntry(uid, {
+        type,
         amount: amt,
         category,
         memo: memo.trim(),
@@ -164,6 +235,7 @@ function AddEntryForm({
       setAmount("");
       setMemo("");
       setShowForm(false);
+      setType("expense");
     } finally {
       setSubmitting(false);
     }
@@ -175,16 +247,19 @@ function AddEntryForm({
         onClick={() => setShowForm(true)}
         className="w-full rounded-lg border border-dashed border-zinc-300 bg-white py-3 text-sm font-medium text-zinc-600 hover:bg-zinc-50"
       >
-        + 지출 추가
+        + 내역 추가
       </button>
     );
   }
+
+  const categoryList = categoriesFor(type);
 
   return (
     <form
       onSubmit={handleSubmit}
       className="space-y-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-4"
     >
+      <TypeToggle value={type} onChange={setType} />
       <div className="flex gap-2">
         <input
           type="text"
@@ -203,7 +278,7 @@ function AddEntryForm({
           onChange={(e) => setCategory(e.target.value)}
           className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
         >
-          {LEDGER_CATEGORIES.map((c) => (
+          {categoryList.map((c) => (
             <option key={c} value={c}>
               {c}
             </option>
@@ -218,7 +293,9 @@ function AddEntryForm({
       </div>
       <input
         type="text"
-        placeholder="메모 (예: 마트 장보기)"
+        placeholder={
+          type === "income" ? "메모 (예: 5월 월급)" : "메모 (예: 마트 장보기)"
+        }
         maxLength={100}
         value={memo}
         onChange={(e) => setMemo(e.target.value)}
@@ -231,6 +308,7 @@ function AddEntryForm({
             setShowForm(false);
             setAmount("");
             setMemo("");
+            setType("expense");
           }}
           className="rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50"
         >
@@ -256,11 +334,23 @@ function LedgerItem({
   uid: string;
 }) {
   const [editing, setEditing] = useState(false);
+  const [type, setType] = useState<EntryType>(entry.type);
   const [amount, setAmount] = useState(String(entry.amount));
   const [category, setCategory] = useState(entry.category);
   const [memo, setMemo] = useState(entry.memo);
   const [date, setDate] = useState(entry.date);
   const [submitting, setSubmitting] = useState(false);
+
+  // Reset category when type changes during edit
+  useEffect(() => {
+    if (editing) {
+      const cats = categoriesFor(type);
+      if (!cats.includes(category as (typeof cats)[number])) {
+        setCategory(cats[0]);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [type, editing]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -269,6 +359,7 @@ function LedgerItem({
     setSubmitting(true);
     try {
       await updateLedgerEntry(uid, entry.id, {
+        type,
         amount: amt,
         category,
         memo: memo.trim(),
@@ -281,6 +372,7 @@ function LedgerItem({
   };
 
   const handleCancel = () => {
+    setType(entry.type);
     setAmount(String(entry.amount));
     setCategory(entry.category);
     setMemo(entry.memo);
@@ -289,9 +381,11 @@ function LedgerItem({
   };
 
   if (editing) {
+    const categoryList = categoriesFor(type);
     return (
       <li className="bg-zinc-50 p-3">
         <form onSubmit={handleSave} className="space-y-2">
+          <TypeToggle value={type} onChange={setType} />
           <div className="flex gap-2">
             <input
               type="text"
@@ -311,7 +405,7 @@ function LedgerItem({
               onChange={(ev) => setCategory(ev.target.value)}
               className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
             >
-              {LEDGER_CATEGORIES.map((c) => (
+              {categoryList.map((c) => (
                 <option key={c} value={c}>
                   {c}
                 </option>
@@ -353,6 +447,9 @@ function LedgerItem({
     );
   }
 
+  const amountColor =
+    entry.type === "income" ? "text-green-600" : "text-zinc-900";
+
   return (
     <li className="flex items-center gap-3 px-4 py-3">
       <div className="w-12 shrink-0 text-xs text-zinc-500">
@@ -360,10 +457,16 @@ function LedgerItem({
       </div>
       <div className="flex-1">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-zinc-900">
-            {formatKRW(entry.amount)}
+          <span className={`text-sm font-medium ${amountColor}`}>
+            {signedKRW(entry.type, entry.amount)}
           </span>
-          <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-600">
+          <span
+            className={`rounded px-1.5 py-0.5 text-xs ${
+              entry.type === "income"
+                ? "bg-green-50 text-green-700"
+                : "bg-zinc-100 text-zinc-600"
+            }`}
+          >
             {entry.category}
           </span>
         </div>
@@ -380,7 +483,7 @@ function LedgerItem({
         </button>
         <button
           onClick={() => {
-            if (confirm("이 지출을 삭제할까요?")) {
+            if (confirm("이 내역을 삭제할까요?")) {
               void deleteLedgerEntry(uid, entry.id);
             }
           }}

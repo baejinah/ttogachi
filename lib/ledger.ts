@@ -10,8 +10,11 @@ import {
 } from "firebase/firestore";
 import { db } from "./firebase";
 
+export type EntryType = "expense" | "income";
+
 export type LedgerEntry = {
   id: string;
+  type: EntryType;
   amount: number;
   category: string;
   memo: string;
@@ -19,7 +22,7 @@ export type LedgerEntry = {
   createdAt: Timestamp | null;
 };
 
-export const LEDGER_CATEGORIES = [
+export const EXPENSE_CATEGORIES = [
   "식비",
   "교통",
   "취미",
@@ -28,11 +31,29 @@ export const LEDGER_CATEGORIES = [
   "기타",
 ] as const;
 
+export const INCOME_CATEGORIES = [
+  "월급",
+  "부수입",
+  "용돈",
+  "이자",
+  "기타",
+] as const;
+
+export function categoriesFor(type: EntryType): readonly string[] {
+  return type === "income" ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
+}
+
 const ledgerCol = (uid: string) => collection(db, "users", uid, "ledger");
 
 export async function addLedgerEntry(
   uid: string,
-  data: { amount: number; category: string; memo: string; date: string }
+  data: {
+    type: EntryType;
+    amount: number;
+    category: string;
+    memo: string;
+    date: string;
+  }
 ): Promise<void> {
   await addDoc(ledgerCol(uid), {
     ...data,
@@ -43,7 +64,13 @@ export async function addLedgerEntry(
 export async function updateLedgerEntry(
   uid: string,
   entryId: string,
-  data: { amount: number; category: string; memo: string; date: string }
+  data: {
+    type: EntryType;
+    amount: number;
+    category: string;
+    memo: string;
+    date: string;
+  }
 ): Promise<void> {
   await updateDoc(doc(db, "users", uid, "ledger", entryId), data);
 }
@@ -60,10 +87,17 @@ export function subscribeLedger(
   callback: (entries: LedgerEntry[]) => void
 ): () => void {
   return onSnapshot(ledgerCol(uid), (snap) => {
-    const entries: LedgerEntry[] = snap.docs.map((d) => ({
-      id: d.id,
-      ...(d.data() as Omit<LedgerEntry, "id">),
-    }));
+    const entries: LedgerEntry[] = snap.docs.map((d) => {
+      const data = d.data() as Omit<LedgerEntry, "id" | "type"> & {
+        type?: EntryType;
+      };
+      // Default older entries (created before income support) to "expense".
+      return {
+        id: d.id,
+        ...data,
+        type: data.type ?? "expense",
+      };
+    });
     entries.sort((a, b) => {
       if (a.date !== b.date) return b.date.localeCompare(a.date);
       const at = a.createdAt?.toMillis() ?? 0;
@@ -76,4 +110,9 @@ export function subscribeLedger(
 
 export function formatKRW(amount: number): string {
   return amount.toLocaleString("ko-KR") + "원";
+}
+
+export function signedKRW(type: EntryType, amount: number): string {
+  const sign = type === "income" ? "+" : "−";
+  return `${sign}${amount.toLocaleString("ko-KR")}원`;
 }
