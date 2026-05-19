@@ -11,6 +11,8 @@ export type UserDoc = {
   role: Role | null;
   googleCalendarId?: string | null;
   googleSyncToken?: string | null;
+  ledgerExpenseCategories?: string[];
+  ledgerIncomeCategories?: string[];
   createdAt?: Timestamp;
 };
 

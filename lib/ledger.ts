@@ -43,6 +43,23 @@ export function categoriesFor(type: EntryType): readonly string[] {
   return type === "income" ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
 }
 
+/** Resolve which category list to show — user-customised if present, else default. */
+export function effectiveCategories(
+  type: EntryType,
+  userDoc: {
+    ledgerExpenseCategories?: string[];
+    ledgerIncomeCategories?: string[];
+  } | null
+): string[] {
+  if (!userDoc) return [...categoriesFor(type)];
+  const list =
+    type === "income"
+      ? userDoc.ledgerIncomeCategories
+      : userDoc.ledgerExpenseCategories;
+  if (list && list.length > 0) return list;
+  return [...categoriesFor(type)];
+}
+
 const ledgerCol = (uid: string) => collection(db, "users", uid, "ledger");
 
 export async function addLedgerEntry(

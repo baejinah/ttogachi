@@ -39,3 +39,13 @@ export async function setGoogleSyncToken(
 ): Promise<void> {
   await updateDoc(doc(db, "users", uid), { googleSyncToken: token });
 }
+
+export async function setLedgerCategories(
+  uid: string,
+  type: "expense" | "income",
+  categories: string[]
+): Promise<void> {
+  const field =
+    type === "income" ? "ledgerIncomeCategories" : "ledgerExpenseCategories";
+  await updateDoc(doc(db, "users", uid), { [field]: categories });
+}
